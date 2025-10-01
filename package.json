@@ -1,0 +1,23 @@
+{
+  "name": "tserato",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.1",
+    "typescript": "^5.3.3",
+    "vitest": "^0.34.6"
+  },
+  "dependencies": {
+    "base-64": "^1.0.0",
+    "mp3tag.js": "^3.14.1",
+    "node-id3": "^0.2.6"
+  }
+}
