@@ -67,19 +67,4 @@ export class Track {
       this.hotCues.splice(atIndex, 0, hotCue);
     }
   }
-
-  equals(other: Track): boolean {
-    return this.path === other.path;
-  }
-
-  hashCode(): number {
-    // simple string hash
-    let hash = 0;
-    for (let i = 0; i < this.path.length; i++) {
-      const chr = this.path.charCodeAt(i);
-      hash = (hash << 5) - hash + chr;
-      hash |= 0; // Convert to 32bit integer
-    }
-    return hash;
-  }
 }

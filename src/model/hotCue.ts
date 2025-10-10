@@ -2,6 +2,33 @@ import { HotCueType } from './hotCueType';
 import { SeratoColor } from './seratoColor';
 import { Buffer } from 'buffer';
 
+function writeNullTerminatedString(str: string): Uint8Array {
+    const encoder = new TextEncoder();
+    const strBytes = encoder.encode(str);
+    const result = new Uint8Array(strBytes.length + 1); // +1 for null terminator
+    result.set(strBytes, 0);
+    result[strBytes.length] = 0;
+    return result;
+}
+
+function concatUint8Arrays(arrays: Uint8Array[]): Uint8Array {
+    let totalLength = arrays.reduce((sum, arr) => sum + arr.length, 0);
+    let result = new Uint8Array(totalLength);
+    let offset = 0;
+    arrays.forEach(arr => {
+        result.set(arr, offset);
+        offset += arr.length;
+    });
+    return result;
+}
+
+function encodeElement(name: string, data: Uint8Array): Uint8Array {
+    const nameBytes = writeNullTerminatedString(name);
+    const lengthBytes = new Uint8Array(4);
+    new DataView(lengthBytes.buffer).setUint32(0, data.length, false); // big endian
+    return concatUint8Arrays([nameBytes, lengthBytes, data]);
+}
+
 export interface HotCueData {
   name: string;
   type: HotCueType;
@@ -44,25 +71,22 @@ export class HotCue implements HotCueData {
   }
 
   private loopToV2Bytes(): Buffer {
-    const parts: Buffer[] = [
-      Buffer.from([0]),
-      Buffer.from([this.index]),
-      Buffer.alloc(4), // start
-      Buffer.alloc(4), // end
-      Buffer.from([0xff, 0xff, 0xff, 0xff, 0x00]),
-      Buffer.from([0xaa, 0xe1, 0x00]), // placeholder color
-      Buffer.from([0]),
-      Buffer.from([this.isLocked ? 1 : 0]),
-      Buffer.from(this.name, "utf-8"),
-      Buffer.from([0]),
-    ];
-    parts[2].writeUInt32BE(this.start ?? 0, 0);
-    parts[3].writeUInt32BE(this.end ?? 0, 0);
+    let nameBytes = writeNullTerminatedString(this.name);
+    let buf = new Uint8Array(0x14 + nameBytes.length);
+    let dv = new DataView(buf.buffer);
 
-    const data = Buffer.concat(parts);
-    const header = Buffer.concat([Buffer.from("LOOP\0", "utf-8"), Buffer.alloc(4)]);
-    header.writeUInt32BE(data.length, 5); // offset 5 after "LOOP\0"
-    return Buffer.concat([header, data]);
+    buf[0x0] = 0x00; // flags? (unused in parse)
+    buf[0x1] = this.index;
+    dv.setUint32(0x02, this.start, false);
+    dv.setUint32(0x06, this.end!, false);
+    buf[0x0e] = 0;
+    buf[0x0f] = 0;
+    buf[0x10] = 255;
+    buf[0x11] = 255;
+    buf[0x13] = 1;
+    buf.set(nameBytes, 0x14);
+
+    return Buffer.from(encodeElement("LOOP", buf));
   }
 
   private cueToV2Bytes(): Buffer {
@@ -94,16 +118,13 @@ export class HotCue implements HotCueData {
 
     parts.push(Buffer.from([1]));
 
-    // name (utf-8)
     parts.push(Buffer.from(this.name, "utf8"));
 
     // >B 0 (null terminator after name)
     parts.push(Buffer.from([0]));
 
-    // Join the inner payload
     const data = Buffer.concat(parts);
 
-    // Now wrap: b"CUE" + b"\x00" + struct.pack(">I", len(data)) + data
     const lenBuf = Buffer.alloc(4);
     lenBuf.writeUInt32BE(data.length, 0);
 
@@ -118,36 +139,68 @@ export class HotCue implements HotCueData {
   }
 
   static fromBytes(data: Buffer, hotcueType: HotCueType): HotCue {
-    if (hotcueType !== HotCueType.CUE) {
-      throw new Error("loop is unsupported. TODO implement");
-    }
     let offset = 1; // skip first null
-    const index = data.readUInt8(offset);
-    offset += 1;
-    const start = data.readUInt32BE(offset);
-    offset += 4;
-    offset += 1; // skip null / position end
-    offset += 0; // skip placeholder
-    const colorBytes = data.slice(offset, offset + 3);
-    offset += 3;
-    offset += 1; // skip null
-    const locked = data.readUInt8(offset) !== 0;
-    offset += 1;
-    const nameBuf = data.slice(offset).subarray(0, data.slice(offset).indexOf(0));
-    const name = nameBuf.toString("utf-8");
+    if (hotcueType === HotCueType.CUE) {
+        const index = data.readUInt8(offset);
+        offset += 1;
+        const start = data.readUInt32BE(offset);
+        offset += 4;
+        offset += 1; // skip null / position end
+        offset += 0; // skip placeholder
+        const colorBytes = data.slice(offset, offset + 3);
+        offset += 3;
+        offset += 1; // skip null
+        const locked = data.readUInt8(offset) !== 0;
+        offset += 1;
+        const nameBuf = data.slice(offset).subarray(0, data.slice(offset).indexOf(0));
+        const name = nameBuf.toString("utf-8");
 
-    const colorHex = colorBytes.toString("hex").toUpperCase();
-    const color = (Object.values(SeratoColor).includes(colorHex as SeratoColor)
-      ? (colorHex as SeratoColor)
-      : SeratoColor.RED);
+        const colorHex = colorBytes.toString("hex").toUpperCase();
+        const color = (Object.values(SeratoColor).includes(colorHex as SeratoColor)
+          ? (colorHex as SeratoColor)
+          : SeratoColor.RED);
 
-    return new HotCue({
-      name,
-      type: HotCueType.CUE,
-      index,
-      start,
-      color,
-      isLocked: locked,
-    });
+        return new HotCue({
+          name,
+          type: HotCueType.CUE,
+          index,
+          start,
+          color,
+          isLocked: locked,
+        });
+    }
+    else if (hotcueType === HotCueType.LOOP) {
+        const index = data.readUInt8(offset); offset += 1;
+        const start = data.readUInt32BE(offset); offset += 4;
+        const end = data.readUInt32BE(offset); offset += 4;
+
+        // Skip to offset 0x0E
+        offset = 0x0E;
+
+        // skip color placeholder bytes (0x0E–0x11)
+        offset += 2; // 0x0E, 0x0F
+        offset += 2; // 0x10, 0x11
+        offset += 1; // 0x12 (padding)
+
+        const isLocked = Boolean(data.readUInt8(offset)); offset += 1;
+
+        // read null-terminated name
+        const nameEnd = data.indexOf(0x00, offset);
+        const name = data.toString("utf8", offset, nameEnd === -1 ? data.length : nameEnd);
+        return new HotCue({
+          name,
+          type: HotCueType.CUE,
+          index,
+          start,
+          end: end,
+          color: SeratoColor.RED,
+          isLocked: isLocked,
+        });
+  }
+
+  else {
+    throw new Error(`Unknown hotcue type: ${hotcueType}`);
+  }
+
   }
 }

@@ -3,13 +3,10 @@ import { HotCueType } from '../../model/hotCueType';
 import { Track } from '../../model/track';
 import { BaseEncoder } from '../baseEncoder';
 import { SERATO_MARKERS_V2 } from '../serato_tags';
-// src/encoders/V2Mp3Encoder.ts
-//import NodeID3 from "node-id3";
 import MP3Tag from 'mp3tag.js'
 import { splitString } from '../../util';
 
 const fs = require('fs')
-
 
 /**
  * Replacement for Python's BytesIO
@@ -38,9 +35,6 @@ class BufferReader {
 }
 
 export class V2Mp3Encoder extends BaseEncoder {
-  get fmtVersion(): string {
-    return "BB"; // just symbolic, we use Buffer methods instead
-  }
 
   get tagName(): string {
     return SERATO_MARKERS_V2;
@@ -67,11 +61,9 @@ export class V2Mp3Encoder extends BaseEncoder {
     // Now, pass it to MP3Tag
     const mp3tag = new MP3Tag(buffer, true)
     
-    // Read the audio tags if there's any
     mp3tag.read()
     
     const geob = mp3tag.tags.v2?.GEOB
-    //const geob = tags[this.tagName];
 
     if (!geob || !geob) {
       return [];
@@ -121,10 +113,10 @@ export class V2Mp3Encoder extends BaseEncoder {
           continue;
         case "CUE":
           yield HotCue.fromBytes(entryData, HotCueType.CUE);
-          break;
+          continue
         case "LOOP":
-          // not yet implemented
-          continue;
+          yield HotCue.fromBytes(entryData, HotCueType.LOOP);
+          continue
         case "BPMLOCK":
           // not yet implemented
           continue;
@@ -162,17 +154,13 @@ export class V2Mp3Encoder extends BaseEncoder {
     // Read the buffer of an audio file
     const buffer = fs.readFileSync(track.path.toString())
     
-    // Now, pass it to MP3Tag
     const mp3tag = new MP3Tag(buffer, true)
     
-    // Read the audio tags if there's any
     mp3tag.read()
     
-    // Write the ID3v2 tags you wanted to write.
+    // Write the ID3v2 tags.
     // See https://mp3tag.js.org/docs/frames.html for the list of supported ID3v2 frames
     
-    // Image metadata
-    // if (mp3tag.tags.v2 === undefined) throw new Error('undefined')
     const object = Array.from(payload)
     mp3tag.tags.v2!.GEOB = [
       {
@@ -191,29 +179,17 @@ export class V2Mp3Encoder extends BaseEncoder {
     
     // Read the new buffer again
     mp3tag.read()
-    console.log(mp3tag.tags)
     
     // Write the new buffer to file
     fs.writeFileSync(track.path.toString(), mp3tag.buffer)
-    //const geob = {
-    //  mimeType: "application/octet-stream",
-    //  filename: "",
-    //  //description: this.markersName,
-    //  contentDescription: this.tagName, 
-    //  encapsulatedObject: payload,
-    //};
-
-    //const tags = {
-    //  generalObject: [ geob ]
-    //};
-    //console.log('writing GEOB tags ', tags)
-
-    //NodeID3.update(tags, track.path.toString());
   }
 
   private _encode(track: Track): Buffer {
     let payload = Buffer.alloc(0);
     for (const cue of track.hotCues) {
+      payload = Buffer.concat([payload, cue.toV2Bytes()]);
+    }
+    for (const cue of track.cueLoops) {
       payload = Buffer.concat([payload, cue.toV2Bytes()]);
     }
     return this._pad(payload);
