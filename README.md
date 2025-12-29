@@ -1,6 +1,6 @@
 # pyserato-ts
 
-TypeScript port of pyserato.
+TypeScript port of pyserato (https://github.com/laker-93/pyserato/).
 
 ## Write Crates
 

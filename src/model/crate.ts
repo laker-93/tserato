@@ -2,17 +2,17 @@ import { Track } from './track';
 import { sanitizeFilename, DuplicateTrackError } from '../util';
 
 export class Crate {
-  private _children: Crate[];
+  private _children: Map<string, Crate>;
   readonly name: string;
   private _tracks: Set<Track>;
 
-  constructor(name: string, children: Crate[] = []) {
-    this._children = [...children];
+  constructor(name: string, children?: Map<string, Crate>) {
+    this._children = children ?? new Map();
     this.name = sanitizeFilename(name);
     this._tracks = new Set();
   }
 
-  get children(): Crate[] {
+  get children(): Map<string, Crate> {
     return this._children;
   }
 
@@ -35,51 +35,21 @@ export class Crate {
     return this.toString();
   }
 
-  plus(other: Crate): Crate {
-    if (this.name !== other.name) {
-      throw new Error("Cannot merge crates with different names");
-    }
-    const childrenCopy = [...this._children, ...other._children].map((c) => c.deepCopy());
-    const merged = new Crate(this.name, childrenCopy);
-    const allTracks = new Set<Track>([...this._tracks, ...other._tracks]);
-    for (const track of allTracks) {
-      merged.addTrack(track);
-    }
-    return merged;
-  }
-
-  deepCopy(memodict = new Map<any, any>()): Crate {
-    if (memodict.has(this)) {
-      return memodict.get(this);
-    }
-    const childrenCopy = this._children.map((c) => c.deepCopy(memodict));
-    const copy = new Crate(this.name, childrenCopy);
-    memodict.set(this, copy);
-    for (const track of this._tracks) {
-      copy.addTrack(track);
-    }
-    return copy;
-  }
-
   equals(other: Crate): boolean {
     if (this.name !== other.name) return false;
     if (this._tracks.size !== other._tracks.size) return false;
 
-    // compare tracks by reference equality (like Python set)
-    for (const track of this._tracks) {
-      if (!other._tracks.has(track)) return false;
-    }
-
-    if (this._children.length || other._children.length) {
-      const sortedChildren = [...this._children].sort((a, b) => a._tracks.size - b._tracks.size);
-      const sortedOtherChildren = [...other._children].sort((a, b) => a._tracks.size - b._tracks.size);
-
-      if (sortedChildren.length !== sortedOtherChildren.length) return false;
-
-      for (let i = 0; i < sortedChildren.length; i++) {
-        if (!sortedChildren[i].equals(sortedOtherChildren[i])) return false;
+    for (const [name, child] of this.children) {
+      const otherChild = other.children.get(name);
+      if (!otherChild) {
+        return false;
+      }
+      if (!child.equals(otherChild)) {
+        return false;
       }
     }
+
     return true;
+
   }
 }
