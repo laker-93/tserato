@@ -44,7 +44,10 @@ export class Track {
   }
 
   static fromPath(trackPath: string, userRoot?: string): Track {
-    const resolved = userRoot ? path.resolve(userRoot, trackPath) : path.resolve(trackPath);
+    const resolved =
+    userRoot != null
+      ? path.resolve(userRoot, trackPath)
+      : path.resolve(trackPath);
     return new Track(resolved);
   }
 

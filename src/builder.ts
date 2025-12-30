@@ -5,7 +5,11 @@ import { Crate } from './model/crate';
 import { Track } from './model/track';
 import { seratoEncode, seratoDecode, concatBytes, intToBytes, latin1Encode } from './util';
 
-const DEFAULT_SERATO_FOLDER = path.join(process.env.HOME || process.cwd(), 'Music', '_Serato_');
+export const DEFAULT_SERATO_FOLDER = path.join(
+  process.env.HOME ?? process.cwd(),
+  'Music',
+  '_Serato_'
+);
 
 export class Builder {
   private _encoder?: BaseEncoder;
@@ -18,8 +22,8 @@ export class Builder {
       const [crate, p] = stack.pop() as [Crate, string];
       let newPath = p + `${crate.name}%%`;
       const children = crate.children;
-      if (children && children.length) {
-        for (const child of children) stack.push([child, newPath]);
+      for (const child of children.values()) {
+        stack.push([child, newPath]);
       }
       yield [crate, newPath.replace(/%%$/, '') + '.crate'];
     }
@@ -38,59 +42,93 @@ export class Builder {
     }
   }
 
-  parseCratesFromRootPath(subcratePath: string): Record<string, Crate> {
-    const result: Record<string, Crate> = {};
-    const entries = fs.readdirSync(subcratePath);
-    for (const name of entries) {
-      if (!name.endsWith('crate')) continue;
-      const full = path.join(subcratePath, name);
-      const crate = this._buildCratesFromFilepath(full);
-      if (result[crate.name]) {
-        const merged_crate = crate.plus(result[crate.name])
-        result[crate.name] = merged_crate;
-      } else {
-        result[crate.name] = crate;
+  parseCratesFromRootPath(subcratePath: string): Map<string, Crate> {
+    // map from top-level crate name to crate
+    const topLevelCrateMap = new Map<string, Crate>();
+
+    for (const entry of fs.readdirSync(subcratePath, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith("crate")) {
+        continue;
+      }
+
+      const fullPath = path.join(subcratePath, entry.name);
+      const crate = this._buildCratesFromFilepath(fullPath, topLevelCrateMap);
+
+      if (!topLevelCrateMap.has(crate.name)) {
+        topLevelCrateMap.set(crate.name, crate);
       }
     }
-    return result;
+
+    return topLevelCrateMap;
   }
 
-  private _buildCratesFromFilepath(filepath: string): Crate {
+  private _buildCratesFromFilepath(
+    filepath: string,
+    topLevelCrateMap: Map<string, Crate>,
+  ): Crate {
     const crateNames = Array.from(Builder._parseCrateNames(filepath));
-    let childCrate: Crate | null = null;
-    let crate: Crate | null = null;
-    for (const crateName of crateNames.reverse()) {
-      if (childCrate == null) {
-        crate = new Crate(crateName);
-        for (const filePath of this._parseCrateTracks(filepath)) {
-          const t = Track.fromPath(filePath);
-          crate.addTrack(t);
-        }
-        childCrate = crate;
-      } else {
-        crate = new Crate(crateName, [childCrate]);
-        childCrate = crate;
-      }
+    if (crateNames.length === 0) {
+      throw new Error(`No crates parsed from ${filepath}`);
     }
-    if (!crate) throw new Error(`no crates parsed from ${filepath}`);
-    return crate;
+
+    const tracks: Track[] = [];
+    for (const p of this._parseCrateTracks(filepath)) {
+      console.log('make track from path ', p, 'from file path ', filepath)
+      tracks.push(Track.fromPath(p));
+    }
+
+    let root = topLevelCrateMap.get(crateNames[0]);
+    if (!root) {
+      root = new Crate(crateNames[0]);
+    }
+
+    let current = root;
+
+    for (const crateName of crateNames.slice(1)) {
+      let nextCrate = current.children.get(crateName);
+      if (!nextCrate) {
+        nextCrate = new Crate(crateName);
+        current.children.set(crateName, nextCrate);
+      }
+      current = nextCrate;
+    }
+
+    for (const track of tracks) {
+      current.addTrack(track);
+    }
+
+    return root;
   }
+
 
   private *_parseCrateTracks(filepath: string): Generator<string> {
     let buffer = fs.readFileSync(filepath);
-    buffer = Buffer.from(buffer);
+    const OTRK = Buffer.from("otrk", "utf8");
+    const PTRK = Buffer.from("ptrk", "utf8");
     while (buffer.length > 0) {
-      const otrkIdx = buffer.indexOf(Buffer.from('otrk'));
+      const otrkIdx = buffer.indexOf(OTRK);
       if (otrkIdx < 0) break;
-      const ptrkIdx = buffer.indexOf(Buffer.from('ptrk'), otrkIdx);
+
+      const ptrkIdx = buffer.indexOf(PTRK);
       if (ptrkIdx < 0) break;
+
       const ptrkSection = buffer.slice(ptrkIdx);
+
       const trackNameLength = ptrkSection.readUInt32BE(4);
-      const trackNameEncoded = ptrkSection.slice(8, 8 + trackNameLength);
+      const trackNameEncoded = ptrkSection.slice(
+        8,
+        8 + trackNameLength,
+      );
+
       let filePath = seratoDecode(trackNameEncoded);
-      if (!filePath.startsWith('/')) filePath = '/' + filePath;
+
+      if (!filePath.startsWith("/")) {
+        filePath = "/" + filePath;
+      }
+
       yield filePath;
-      buffer = ptrkSection.slice(8 + trackNameLength);
+
+      buffer = buffer.slice(ptrkIdx + 8 + trackNameLength);
     }
   }
 
@@ -127,23 +165,20 @@ export class Builder {
     // ----- PLAYLIST SECTION -----
 
     const playlistParts: Uint8Array[] = [];
-    if (crate.tracks) {
-      for (const track of crate.tracks) {
-        if (this._encoder) {
-          this._encoder.write(track);
-        }
-        const absoluteTrackPath = path.resolve(track.path);
-
-        const otrkSize = intToBytes(absoluteTrackPath.length * 2 + 8, 4);
-        const ptrkSize = intToBytes(absoluteTrackPath.length * 2, 4);
-
-        playlistParts.push(latin1Encode("otrk"));
-        playlistParts.push(otrkSize);
-        playlistParts.push(latin1Encode("ptrk"));
-        playlistParts.push(ptrkSize);
-        playlistParts.push(seratoEncode(absoluteTrackPath));
-
+    for (const track of crate.tracks) {
+      if (this._encoder) {
+        this._encoder.write(track);
       }
+      const absoluteTrackPath = path.resolve(track.path);
+
+      const otrkSize = intToBytes(absoluteTrackPath.length * 2 + 8, 4);
+      const ptrkSize = intToBytes(absoluteTrackPath.length * 2, 4);
+
+      playlistParts.push(latin1Encode("otrk"));
+      playlistParts.push(otrkSize);
+      playlistParts.push(latin1Encode("ptrk"));
+      playlistParts.push(ptrkSize);
+      playlistParts.push(seratoEncode(absoluteTrackPath));
     }
     const playlistSection = concatBytes(playlistParts);
 
@@ -153,7 +188,7 @@ export class Builder {
   }
 
 
-  save(root: Crate, savePath: string = DEFAULT_SERATO_FOLDER, overwrite = false) {
+  save(root: Crate, savePath: string = DEFAULT_SERATO_FOLDER, overwrite = false): void {
     for (const [crate, filepath] of this._buildCrateFilepath(root, savePath)) {
       if (fs.existsSync(filepath) && !overwrite) continue;
       const buffer = this._construct(crate);

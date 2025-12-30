@@ -1,4 +1,4 @@
-export { Builder } from './builder';
+export { Builder, DEFAULT_SERATO_FOLDER } from './builder';
 export { V2Mp3Encoder } from './encoders/v2/v2Mp3Encoder';
 export { Crate } from './model/crate';
 export { Track } from './model/track';

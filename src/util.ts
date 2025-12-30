@@ -16,34 +16,24 @@ export function splitString(input: Buffer, after: number = 72, delimiter: Buffer
   }, []));
 }
 
-export function seratoDecode(s: Buffer): string {
-  // Decodes Serato 4-byte blocks into UTF-16-encoded string
-  const out: number[] = [];
-  for (let i = 0; i < s.length; i += 4) {
-    const block = s.slice(i, i + 4);
-    if (block.length < 4) break;
-    const w = block.readUInt8(0);
-    const x = block.readUInt8(1);
-    const y = block.readUInt8(2);
-    const z = block.readUInt8(3);
-    const c = (z & 0x7F) | ((y & 0x01) << 7);
-    const b = ((y & 0x7F) >> 1) | ((x & 0x03) << 6);
-    const a = ((x & 0x7F) >> 2) | ((w & 0x07) << 5);
-    out.push(a, b, c);
+
+export function seratoDecode(buffer: Buffer): string {
+  let result = "";
+
+  for (let i = 0; i + 1 < buffer.length; i += 2) {
+    // Take 2 bytes
+    const chunk = buffer.slice(i, i + 2);
+
+    // Reverse bytes (Python: chunk[::-1])
+    const reversed = Buffer.from([chunk[1], chunk[0]]);
+
+    // Decode as UTF-16LE (Node uses LE explicitly)
+    result += reversed.toString("utf16le");
   }
-  // Interpret as UTF-16-BE pairs
-  // Convert bytes to string by grouping into 2-byte code units
-  const bytes = Buffer.from(out);
-  let str = '';
-  for (let i = 0; i < bytes.length; i += 2) {
-    const hi = bytes[i];
-    const lo = (i + 1) < bytes.length ? bytes[i+1] : 0;
-    const code = (hi << 8) | lo;
-    if (code === 0) break;
-    str += String.fromCharCode(code);
-  }
-  return str;
+
+  return result;
 }
+
 
 export function concatBytes(arrays: Uint8Array[]): Uint8Array {
   const totalLength = arrays.reduce((sum, a) => sum + a.length, 0);
