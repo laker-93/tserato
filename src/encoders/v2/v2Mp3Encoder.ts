@@ -65,7 +65,7 @@ export class V2Mp3Encoder extends BaseEncoder {
     
     const geob = mp3tag.tags.v2?.GEOB
 
-    if (!geob || !geob) {
+    if (!geob) {
       return [];
     }
 

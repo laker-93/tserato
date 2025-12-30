@@ -5,7 +5,11 @@ import { Crate } from './model/crate';
 import { Track } from './model/track';
 import { seratoEncode, seratoDecode, concatBytes, intToBytes, latin1Encode } from './util';
 
-export const DEFAULT_SERATO_FOLDER = path.join(process.env.HOME || process.cwd(), 'Music', '_Serato_');
+export const DEFAULT_SERATO_FOLDER = path.join(
+  process.env.HOME ?? process.cwd(),
+  'Music',
+  '_Serato_'
+);
 
 export class Builder {
   private _encoder?: BaseEncoder;
@@ -18,8 +22,8 @@ export class Builder {
       const [crate, p] = stack.pop() as [Crate, string];
       let newPath = p + `${crate.name}%%`;
       const children = crate.children;
-      if (children) {
-        for (const child of children.values()) stack.push([child, newPath]);
+      for (const child of children.values()) {
+        stack.push([child, newPath]);
       }
       yield [crate, newPath.replace(/%%$/, '') + '.crate'];
     }
@@ -161,23 +165,20 @@ export class Builder {
     // ----- PLAYLIST SECTION -----
 
     const playlistParts: Uint8Array[] = [];
-    if (crate.tracks) {
-      for (const track of crate.tracks) {
-        if (this._encoder) {
-          this._encoder.write(track);
-        }
-        const absoluteTrackPath = path.resolve(track.path);
-
-        const otrkSize = intToBytes(absoluteTrackPath.length * 2 + 8, 4);
-        const ptrkSize = intToBytes(absoluteTrackPath.length * 2, 4);
-
-        playlistParts.push(latin1Encode("otrk"));
-        playlistParts.push(otrkSize);
-        playlistParts.push(latin1Encode("ptrk"));
-        playlistParts.push(ptrkSize);
-        playlistParts.push(seratoEncode(absoluteTrackPath));
-
+    for (const track of crate.tracks) {
+      if (this._encoder) {
+        this._encoder.write(track);
       }
+      const absoluteTrackPath = path.resolve(track.path);
+
+      const otrkSize = intToBytes(absoluteTrackPath.length * 2 + 8, 4);
+      const ptrkSize = intToBytes(absoluteTrackPath.length * 2, 4);
+
+      playlistParts.push(latin1Encode("otrk"));
+      playlistParts.push(otrkSize);
+      playlistParts.push(latin1Encode("ptrk"));
+      playlistParts.push(ptrkSize);
+      playlistParts.push(seratoEncode(absoluteTrackPath));
     }
     const playlistSection = concatBytes(playlistParts);
 
@@ -187,7 +188,7 @@ export class Builder {
   }
 
 
-  save(root: Crate, savePath: string = DEFAULT_SERATO_FOLDER, overwrite = false) {
+  save(root: Crate, savePath: string = DEFAULT_SERATO_FOLDER, overwrite = false): void {
     for (const [crate, filepath] of this._buildCrateFilepath(root, savePath)) {
       if (fs.existsSync(filepath) && !overwrite) continue;
       const buffer = this._construct(crate);
