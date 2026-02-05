@@ -5,6 +5,7 @@ import { BaseEncoder } from '../baseEncoder';
 import { SERATO_MARKERS_V2 } from '../serato_tags';
 import MP3Tag from 'mp3tag.js'
 import { splitString } from '../../util';
+import { TrackMeta } from '../../model/trackMeta';
 
 const fs = require('fs')
 
@@ -51,6 +52,20 @@ export class V2Mp3Encoder extends BaseEncoder {
   write(track: Track): void {
     const payload = this._encode(track);
     this._write(track, payload);
+  }
+
+  readMetaData(track: Track): TrackMeta {
+    const buffer = fs.readFileSync(track.path.toString())
+    
+    const mp3tag = new MP3Tag(buffer, true)
+    
+    mp3tag.read();
+    const v2 = mp3tag.tags.v2
+    return {
+      title: v2?.TIT2,
+      artist: v2?.TPE1,
+      album: v2?.TALB
+    }
   }
 
   readCues(track: Track): HotCue[] {

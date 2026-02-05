@@ -73,7 +73,6 @@ export class Builder {
 
     const tracks: Track[] = [];
     for (const p of this._parseCrateTracks(filepath)) {
-      console.log('make track from path ', p, 'from file path ', filepath)
       tracks.push(Track.fromPath(p));
     }
 

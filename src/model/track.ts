@@ -2,6 +2,7 @@ import * as path from 'path';
 import { HotCue } from './hotCue';
 import { HotCueType } from './hotCueType';
 import { Tempo } from './tempo';
+import { TrackMeta } from './trackMeta';
 
 export class Track {
   path: string;
@@ -15,6 +16,7 @@ export class Track {
   beatgrid: Tempo[];
   hotCues: HotCue[];
   cueLoops: HotCue[];
+  trackMeta: TrackMeta | null;
 
   constructor(
     trackPath: string,
@@ -28,6 +30,7 @@ export class Track {
       beatgrid?: Tempo[];
       hotCues?: HotCue[];
       cueLoops?: HotCue[];
+      trackMeta?: TrackMeta;
     } = {}
   ) {
     this.path = trackPath;
@@ -41,6 +44,7 @@ export class Track {
     this.beatgrid = params.beatgrid ?? [];
     this.hotCues = params.hotCues ?? [];
     this.cueLoops = params.cueLoops ?? [];
+    this.trackMeta = params.trackMeta ?? null;
   }
 
   static fromPath(trackPath: string, userRoot?: string): Track {
@@ -69,5 +73,9 @@ export class Track {
     } else {
       this.hotCues.splice(atIndex, 0, hotCue);
     }
+  }
+
+  addTrackMeta(trackMeta: TrackMeta): void {
+    this.trackMeta = trackMeta;
   }
 }
