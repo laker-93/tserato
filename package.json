@@ -23,7 +23,6 @@
   },
   "dependencies": {
     "base-64": "^1.0.0",
-    "mp3tag.js": "^3.14.1",
-    "node-id3": "^0.2.6"
+    "mp3tag.js": "^3.14.1"
   }
 }
