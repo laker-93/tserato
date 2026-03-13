@@ -1,4 +1,4 @@
-import { HotCue } from '../../../src/model/hotCue';
+import { HotCue } from '../../model/hotCue';
 import { HotCueType } from '../../model/hotCueType';
 import { Track } from '../../model/track';
 import { BaseEncoder } from '../baseEncoder';
