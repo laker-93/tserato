@@ -5,11 +5,16 @@ export class Crate {
   private _children: Map<string, Crate>;
   readonly name: string;
   private _tracks: Set<Track>;
+  // Set membership is object identity, so it cannot answer "is this track
+  // already here". Serato identifies a track by its path, so we track paths
+  // alongside -- see addTrack.
+  private _trackPaths: Set<string>;
 
   constructor(name: string, children?: Map<string, Crate>) {
     this._children = children ?? new Map();
     this.name = sanitizeFilename(name);
     this._tracks = new Set();
+    this._trackPaths = new Set();
   }
 
   get children(): Map<string, Crate> {
@@ -20,11 +25,26 @@ export class Crate {
     return this._tracks;
   }
 
+  /**
+   * How many tracks are in this crate.
+   *
+   * `tracks` is a Set, so `crate.tracks.length` is `undefined` rather than an
+   * error -- a count written that way renders as "undefined" with nothing to
+   * debug. Use this instead.
+   */
+  get trackCount(): number {
+    return this._tracks.size;
+  }
+
   addTrack(track: Track): void {
-    if (this._tracks.has(track)) {
-      throw new DuplicateTrackError(`track ${track} is already in the crate ${this.name}`);
+    // Two Track objects built from the same path are distinct objects, so a
+    // plain Set never rejects them and the crate silently gains a duplicate
+    // entry. Compare on path, which is what identifies a track to Serato.
+    if (this._trackPaths.has(track.path)) {
+      throw new DuplicateTrackError(`track ${track.path} is already in the crate ${this.name}`);
     }
     this._tracks.add(track);
+    this._trackPaths.add(track.path);
   }
 
   toString(): string {
