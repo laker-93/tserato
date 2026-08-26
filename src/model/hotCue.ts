@@ -188,8 +188,10 @@ export class HotCue implements HotCueData {
         const nameEnd = data.indexOf(0x00, offset);
         const name = data.toString("utf8", offset, nameEnd === -1 ? data.length : nameEnd);
         return new HotCue({
+          // a LOOP decoded as a CUE loses its end point on the way back out,
+          // because toV2Bytes dispatches on this field
           name,
-          type: HotCueType.CUE,
+          type: HotCueType.LOOP,
           index,
           start,
           end: end,
