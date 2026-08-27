@@ -5,6 +5,7 @@ import { V2Mp3Encoder } from '../src/encoders/v2/v2Mp3Encoder';
 import { HotCue } from '../src/model/hotCue';
 import { HotCueType } from '../src/model/hotCueType';
 import { Track } from '../src/model/track';
+import { unpooledBuffer } from '../src/util';
 import {
   FIXTURE,
   SERATO_GEOB,
@@ -60,6 +61,21 @@ describe('readCues on a Serato-analysed file', () => {
     // client would take the Electron main process down with it.
     expect(() => new V2Mp3Encoder().readCues(new Track(copy))).not.toThrow();
   });
+  it('decodes the file it was given, not whatever shares its read buffer', () => {
+    // Node 24's fs.readFileSync serves files out of a shared 64 KiB pool, so
+    // the Buffer is a window at a non-zero offset. mp3tag.js ignores that
+    // offset and decoded whichever file sat at the start of the pool instead
+    // -- no error, just another track's cues. Only some reads land mid-pool,
+    // so alternate enough times to cover a whole cycle of it.
+    const stripped = scratchCopy();
+    stripGeob(stripped, 'Serato Markers2');
+    const encoder = new V2Mp3Encoder();
+
+    for (let i = 0; i < 6; i++) {
+      expect(encoder.readCues(new Track(stripped))).toEqual([]);
+      expect(encoder.readCues(new Track(FIXTURE))).toHaveLength(4);
+    }
+  });
 });
 
 describe('write', () => {
@@ -112,7 +128,7 @@ withPyserato('agreement with pyserato', () => {
 const MP3Tag = require('mp3tag.js');
 
 function editTags(file: string, fn: (geob: any[]) => any[]): void {
-  const mp3tag = new MP3Tag(fs.readFileSync(file), true);
+  const mp3tag = new MP3Tag(unpooledBuffer(fs.readFileSync(file)), true);
   mp3tag.read();
   mp3tag.tags.v2.GEOB = fn(mp3tag.tags.v2.GEOB ?? []);
   mp3tag.save({ id3v2: { encoding: 'latin1' } });
@@ -121,7 +137,7 @@ function editTags(file: string, fn: (geob: any[]) => any[]): void {
 }
 
 function readGeobDescriptions(file: string): string[] {
-  const mp3tag = new MP3Tag(fs.readFileSync(file), true);
+  const mp3tag = new MP3Tag(unpooledBuffer(fs.readFileSync(file)), true);
   mp3tag.read();
   return (mp3tag.tags.v2?.GEOB ?? []).map((f: any) => f.description);
 }

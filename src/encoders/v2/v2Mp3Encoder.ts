@@ -4,10 +4,18 @@ import { Track } from '../../model/track';
 import { BaseEncoder } from '../baseEncoder';
 import { SERATO_MARKERS_V2 } from '../serato_tags';
 import MP3Tag from 'mp3tag.js'
-import { splitString } from '../../util';
+import { splitString, unpooledBuffer } from '../../util';
 import { TrackMeta } from '../../model/trackMeta';
 
 const fs = require('fs')
+
+/**
+ * Every buffer handed to mp3tag.js has to own its ArrayBuffer -- see
+ * unpooledBuffer. Reading a track any other way decodes the wrong file.
+ */
+function readTrackFile(path: string): Buffer {
+  return unpooledBuffer(fs.readFileSync(path))
+}
 
 interface Geob {
   format: string;
@@ -72,7 +80,7 @@ export class V2Mp3Encoder extends BaseEncoder {
   }
 
   readMetaData(track: Track): TrackMeta {
-    const buffer = fs.readFileSync(track.path.toString())
+    const buffer = readTrackFile(track.path.toString())
     
     const mp3tag = new MP3Tag(buffer, true)
     
@@ -88,7 +96,7 @@ export class V2Mp3Encoder extends BaseEncoder {
   readCues(track: Track): HotCue[] {
 
     // Read the buffer of an audio file
-    const buffer = fs.readFileSync(track.path.toString())
+    const buffer = readTrackFile(track.path.toString())
     
     // Now, pass it to MP3Tag
     const mp3tag = new MP3Tag(buffer, true)
@@ -220,7 +228,7 @@ export class V2Mp3Encoder extends BaseEncoder {
 
   private _write(track: Track, payload: Buffer): void {
     // Read the buffer of an audio file
-    const buffer = fs.readFileSync(track.path.toString())
+    const buffer = readTrackFile(track.path.toString())
     
     const mp3tag = new MP3Tag(buffer, true)
     

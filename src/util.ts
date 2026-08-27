@@ -77,3 +77,19 @@ export function sanitizeFilename(filename: string): string {
 }
 
 export class DuplicateTrackError extends Error {}
+
+/**
+ * Return a Buffer that owns its whole ArrayBuffer, copying only if it does not.
+ *
+ * mp3tag.js parses through the underlying ArrayBuffer and ignores the view's
+ * byteOffset, so a Buffer that is a window into a larger allocation decodes
+ * from the wrong bytes. Node 24's fs.readFileSync serves files out of a shared
+ * 64 KiB pool, so every read after the first is such a window and the tags
+ * come back from whichever file happens to sit at the start of the pool --
+ * silently, with no error. Node 22, which is what Electron 39 ships, does not
+ * pool, which is why this only shows up on newer runtimes.
+ */
+export function unpooledBuffer(buf: Buffer): Buffer {
+  if (buf.byteOffset === 0 && buf.byteLength === buf.buffer.byteLength) return buf;
+  return Buffer.from(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+}
