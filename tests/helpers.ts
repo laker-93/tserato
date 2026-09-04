@@ -62,3 +62,34 @@ print(json.dumps(sorted(f.desc for k, f in tags.items() if k.startswith("GEOB:")
 `, file]);
   return JSON.parse(out.toString());
 }
+
+/**
+ * The beatgrid encoder is newer than the released pyserato, so the cross-check
+ * probes for the module itself rather than for pyserato in general. Point
+ * PYSERATO_PYTHON at a checkout that has laker-93/pyserato#13 to run these;
+ * they skip cleanly against a released one.
+ */
+export function pyseratoBeatgridAvailable(): boolean {
+  try {
+    execFileSync(PYTHON, ['-c', 'import pyserato.encoders.beatgrid_mp3_encoder'], {
+      stdio: 'ignore',
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function pyseratoBeatgrid(file: string): Array<Record<string, unknown>> {
+  const out = execFileSync(PYTHON, ['-c', `
+import json, sys
+from pyserato.encoders.beatgrid_mp3_encoder import BeatgridMp3Encoder
+from pyserato.model.track import Track
+grid = BeatgridMp3Encoder().read_beatgrid(Track(sys.argv[1]))
+print(json.dumps([
+    {"position": m.position, "bpm": m.bpm, "beatsTillNext": m.beats_till_next}
+    for m in grid
+]))
+`, file]);
+  return JSON.parse(out.toString());
+}

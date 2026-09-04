@@ -3,26 +3,9 @@ import { HotCueType } from '../../model/hotCueType';
 import { Track } from '../../model/track';
 import { BaseEncoder } from '../baseEncoder';
 import { SERATO_MARKERS_V2 } from '../serato_tags';
-import MP3Tag from 'mp3tag.js'
-import { splitString, unpooledBuffer } from '../../util';
+import { splitString } from '../../util';
+import { Geob, findGeobFrame, openTrack, writeGeobFrame } from '../geob';
 import { TrackMeta } from '../../model/trackMeta';
-
-const fs = require('fs')
-
-/**
- * Every buffer handed to mp3tag.js has to own its ArrayBuffer -- see
- * unpooledBuffer. Reading a track any other way decodes the wrong file.
- */
-function readTrackFile(path: string): Buffer {
-  return unpooledBuffer(fs.readFileSync(path))
-}
-
-interface Geob {
-  format: string;
-  filename: string;
-  object: number[];
-  description: string;
-}
 
 /**
  * Replacement for Python's BytesIO
@@ -80,11 +63,7 @@ export class V2Mp3Encoder extends BaseEncoder {
   }
 
   readMetaData(track: Track): TrackMeta {
-    const buffer = readTrackFile(track.path.toString())
-    
-    const mp3tag = new MP3Tag(buffer, true)
-    
-    mp3tag.read();
+    const mp3tag = openTrack(track.path.toString())
     const v2 = mp3tag.tags.v2
     return {
       title: v2?.TIT2,
@@ -95,13 +74,7 @@ export class V2Mp3Encoder extends BaseEncoder {
 
   readCues(track: Track): HotCue[] {
 
-    // Read the buffer of an audio file
-    const buffer = readTrackFile(track.path.toString())
-    
-    // Now, pass it to MP3Tag
-    const mp3tag = new MP3Tag(buffer, true)
-    
-    mp3tag.read()
+    const mp3tag = openTrack(track.path.toString())
 
     // A track Serato has analysed carries six GEOB frames -- Analysis,
     // BeatGrid, Autotags, Markers_, Markers2 and Overview -- in no guaranteed
@@ -121,7 +94,7 @@ export class V2Mp3Encoder extends BaseEncoder {
   }
 
   private _findMarkers2(geob: Geob[] | undefined): Geob | undefined {
-    return geob?.find((f) => f.description === this.markersName);
+    return findGeobFrame(geob, this.markersName);
   }
 
   private *_decode(data: Buffer): IterableIterator<HotCue> {
@@ -227,45 +200,8 @@ export class V2Mp3Encoder extends BaseEncoder {
   }
 
   private _write(track: Track, payload: Buffer): void {
-    // Read the buffer of an audio file
-    const buffer = readTrackFile(track.path.toString())
-    
-    const mp3tag = new MP3Tag(buffer, true)
-    
-    mp3tag.read()
-    
-    // Write the ID3v2 tags.
-    // See https://mp3tag.js.org/docs/frames.html for the list of supported ID3v2 frames
-    
-    const object = Array.from(payload)
-    const frame: Geob = {
-      format: 'application/octet-stream',
-      filename: "",
-      object: object,
-      description: this.markersName,
-    }
-
-    // Replace only our own frame. Assigning the whole GEOB array discards the
-    // five frames Serato owns -- the beatgrid, the waveform overview and the
-    // BPM/key analysis it spent minutes computing -- which the user cannot get
-    // back without re-analysing, losing any manual gridding with it.
-    const existing: Geob[] = mp3tag.tags.v2!.GEOB ?? []
-    const at = existing.findIndex((f) => f.description === this.markersName)
-    mp3tag.tags.v2!.GEOB = at >= 0
-      ? existing.map((f, i) => (i === at ? frame : f))
-      : [...existing, frame]
-    
-    // Save the tags
-    mp3tag.save({id3v2: {encoding: "latin1"}})
-    
-    // Handle error if there's any
-    if (mp3tag.error !== '') throw new Error(mp3tag.error)
-    
-    // Read the new buffer again
-    mp3tag.read()
-    
-    // Write the new buffer to file
-    fs.writeFileSync(track.path.toString(), mp3tag.buffer)
+    // Replaces only our own frame; see writeGeobFrame for why that matters.
+    writeGeobFrame(track.path.toString(), this.markersName, payload);
   }
 
   private _encode(track: Track): Buffer {
