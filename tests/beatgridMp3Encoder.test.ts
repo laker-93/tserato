@@ -196,3 +196,40 @@ function readGeobBytes(file: string): Record<string, number[]> {
     ])
   );
 }
+
+describe('the footer byte', () => {
+  // The one field in the frame nobody can interpret. Holzhaus/serato-tags calls
+  // it "apparently random", which makes it exactly the kind of byte to copy
+  // rather than set -- writing a guess over it is the same mistake as replacing
+  // the sibling GEOB frames we cannot regenerate.
+
+  it('carries an unfamiliar footer through a rewrite rather than replacing it', () => {
+    const file = scratchCopy('footer.mp3');
+    const track = Track.fromPath(file);
+
+    // 0x2a deliberately is not 0x00: every observed file carries 0x00, so a
+    // test using it would pass against an encoder that ignores the footer.
+    track.beatgrid = [{ position: 0.5, bpm: 128.0, beatsTillNext: null }];
+    writeGeobFrame(file, 'Serato BeatGrid', encoder._encode(track.beatgrid, 0x2a));
+    expect(encoder.readFooter(track)).toBe(0x2a);
+
+    track.beatgrid = [
+      { position: 0.25, bpm: null, beatsTillNext: 4 },
+      { position: 2.25, bpm: 120.0, beatsTillNext: null },
+    ];
+    encoder.write(track);
+
+    expect(encoder.readFooter(track)).toBe(0x2a);
+    expect(encoder.readBeatgrid(track)).toHaveLength(2);
+  });
+
+  it('uses the observed default when the file has no frame to copy from', () => {
+    const file = scratchCopy('fresh.mp3');
+    const track = Track.fromPath(file);
+
+    track.beatgrid = [{ position: 0.5, bpm: 128.0, beatsTillNext: null }];
+    encoder.write(track);
+
+    expect(encoder.readFooter(track)).toBe(0x00);
+  });
+});

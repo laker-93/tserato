@@ -5,11 +5,18 @@ import { SERATO_BEATGRID } from '../serato_tags';
 import { findGeobFrame, openTrack, writeGeobFrame } from '../geob';
 
 /**
- * The byte after the markers. Serato writes one; what it means is not known,
- * and every analysed file observed carries exactly one, so it is reproduced
- * rather than guessed at.
+ * The byte after the markers. Nobody knows what it is for: the most complete
+ * public description of the format calls it "apparently random"
+ * (Holzhaus/serato-tags, docs/serato_beatgrid.md), and it is the one field here
+ * that is neither structure nor data we can interpret.
+ *
+ * Every file observed carries 0x00 -- 34 Serato-authored files on the QA
+ * machine, gridded and ungridded alike -- so this is what we write when there
+ * is nothing to copy. When there *is* something to copy we copy it, because the
+ * rule for a byte we cannot read is the rule for the sibling GEOB frames: do
+ * not overwrite what you cannot reproduce.
  */
-const FOOTER = 0x00;
+const DEFAULT_FOOTER = 0x00;
 
 const HEADER_BYTES = 6; // version (2) + marker count (4)
 const MARKER_BYTES = 8;
@@ -24,7 +31,14 @@ const MARKER_BYTES = 8;
  *     n_markers uint32be
  *     n-1 x     float32be position_s, uint32be beats_till_next
  *     1 x       float32be position_s, float32be bpm      # terminal marker
- *     footer    1 byte
+ *     footer    1 byte                        # meaning unknown; copied, not set
+ *
+ * This agrees field for field with Holzhaus/serato-tags, which was checked
+ * against it after the fact. Two things that write-up leaves open are settled
+ * here empirically: the version bytes it records only as "?" are (1, 0) on all
+ * 34 Serato-authored files on the QA machine, and the footer it calls
+ * "apparently random" is 0x00 on all 34. Neither is relied on -- an unfamiliar
+ * version reads as "no grid", and the footer is copied from the file.
  *
  * Worked examples:
  *
@@ -79,9 +93,35 @@ export class BeatgridMp3Encoder extends BaseEncoder {
     }
   }
 
+  /**
+   * The trailing byte of the track's existing beatgrid frame, if it has one.
+   *
+   * Separate from readBeatgrid because it is not part of the grid -- it is a
+   * byte we carry rather than a byte we understand.
+   */
+  readFooter(track: Track): number {
+    try {
+      const frame = findGeobFrame(
+        openTrack(track.path.toString()).tags.v2?.GEOB,
+        this.markersName
+      );
+      if (!frame) {
+        return DEFAULT_FOOTER;
+      }
+      const data = Buffer.from(frame.object);
+      return data.length > 0 ? data.readUInt8(data.length - 1) : DEFAULT_FOOTER;
+    } catch {
+      return DEFAULT_FOOTER;
+    }
+  }
+
   write(track: Track): void {
+    // The file being written is very often one Serato has analysed and left
+    // ungridded, which already has this frame and so already has a footer byte.
+    // Writing a grid into it must not replace that byte with a guess.
+    const payload = this._encode(track.beatgrid, this.readFooter(track));
     // Replaces only our own frame; see writeGeobFrame for why that matters.
-    writeGeobFrame(track.path.toString(), this.markersName, this._encode(track.beatgrid));
+    writeGeobFrame(track.path.toString(), this.markersName, payload);
   }
 
   _decode(data: Buffer): Tempo[] {
@@ -112,7 +152,7 @@ export class BeatgridMp3Encoder extends BaseEncoder {
     return grid;
   }
 
-  _encode(grid: Tempo[]): Buffer {
+  _encode(grid: Tempo[], footer: number = DEFAULT_FOOTER): Buffer {
     const out = Buffer.alloc(HEADER_BYTES + grid.length * MARKER_BYTES + 1);
     this.tagVersion.copy(out, 0);
     out.writeUInt32BE(grid.length, 2);
@@ -143,7 +183,7 @@ export class BeatgridMp3Encoder extends BaseEncoder {
       }
     });
 
-    out.writeUInt8(FOOTER, out.length - 1);
+    out.writeUInt8(footer, out.length - 1);
     return out;
   }
 }
