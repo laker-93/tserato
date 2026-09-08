@@ -23,6 +23,7 @@ import {
   flacComments,
   flacDecodes,
   flacToolAvailable,
+  mutagenAvailable,
   pyseratoAvailable,
   scratchCopyOf,
   scratchFlacCopy,
@@ -32,6 +33,8 @@ const MARKERS2 = 'Serato Markers2';
 const BEATGRID = 'Serato BeatGrid';
 
 const withPython = pyseratoAvailable() ? describe : describe.skip;
+/** For the tests that read the file back with mutagen but need no pyserato. */
+const itWithMutagen = mutagenAvailable() ? it : it.skip;
 
 describe('reading a Serato-analysed FLAC', () => {
   it('gives the same cues the same track gives as an MP3', () => {
@@ -152,7 +155,7 @@ describe('writing a FLAC', () => {
     expect(value.split('\n').every((line) => line.length <= 72)).toBe(true);
   });
 
-  it('adds the comment block to a FLAC that has none', () => {
+  itWithMutagen('adds the comment block to a FLAC that has none', () => {
     const file = scratchFlacCopy('bare.flac');
     stripComments(file);
     expect(flacBlocks(file)).not.toContain(4);
@@ -177,7 +180,7 @@ describe('writing a FLAC', () => {
 });
 
 describe('what a write must not touch', () => {
-  it('leaves the other comments exactly as they were', () => {
+  itWithMutagen('leaves the other comments exactly as they were', () => {
     // The failure to guard against is a tag writer that "normalises" the file
     // on the way past: uppercasing every key, collapsing the repeated ARTIST
     // into one, or cutting COMMENT off at its first `=`.
@@ -202,7 +205,7 @@ describe('what a write must not touch', () => {
     expect(comment(file, 'serato_beatgrid')).toBe(grid);
   });
 
-  it('keeps the spelling the file already used', () => {
+  itWithMutagen('keeps the spelling the file already used', () => {
     // Vorbis field names are case-insensitive, so writing our own spelling
     // would leave two comments claiming the same field and no rule about which
     // one Serato reads.
@@ -217,7 +220,7 @@ describe('what a write must not touch', () => {
     ]);
   });
 
-  it('leaves every other metadata block, and the audio, as they were', () => {
+  itWithMutagen('leaves every other metadata block, and the audio, as they were', () => {
     const file = scratchFlacCopy('blocks.flac');
     const blocks = flacBlocks(file);
     const audio = flacAudioIdentity(file);
