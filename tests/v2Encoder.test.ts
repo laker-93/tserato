@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as fs from 'fs';
 
-import { V2Mp3Encoder } from '../src/encoders/v2/v2Mp3Encoder';
+import { V2Encoder } from '../src/encoders/v2/v2Encoder';
 import { HotCue } from '../src/model/hotCue';
 import { HotCueType } from '../src/model/hotCueType';
 import { Track } from '../src/model/track';
@@ -19,7 +19,7 @@ const withPyserato = pyseratoAvailable() ? describe : describe.skip;
 
 describe('readCues on a Serato-analysed file', () => {
   it('finds the cues even though Markers2 is not the first GEOB frame', () => {
-    const cues = new V2Mp3Encoder().readCues(new Track(FIXTURE));
+    const cues = new V2Encoder().readCues(new Track(FIXTURE));
 
     expect(cues.map((c) => c.name)).toEqual([
       'CUE 1s',
@@ -30,7 +30,7 @@ describe('readCues on a Serato-analysed file', () => {
   });
 
   it('reads a loop back as a loop, with its end point', () => {
-    const cues = new V2Mp3Encoder().readCues(new Track(FIXTURE));
+    const cues = new V2Encoder().readCues(new Track(FIXTURE));
     const loop = cues.find((c) => c.name === 'LOOP 20 to 24s')!;
 
     expect(loop.type).toBe(HotCueType.LOOP);
@@ -42,14 +42,14 @@ describe('readCues on a Serato-analysed file', () => {
     const copy = scratchCopy();
     stripAllGeob(copy);
 
-    expect(new V2Mp3Encoder().readCues(new Track(copy))).toEqual([]);
+    expect(new V2Encoder().readCues(new Track(copy))).toEqual([]);
   });
 
   it('returns [] for a file that has GEOB frames but no Markers2', () => {
     const copy = scratchCopy();
     stripGeob(copy, 'Serato Markers2');
 
-    expect(new V2Mp3Encoder().readCues(new Track(copy))).toEqual([]);
+    expect(new V2Encoder().readCues(new Track(copy))).toEqual([]);
   });
 
   it('does not hang or abort the process on a truncated Markers2 frame', () => {
@@ -59,7 +59,7 @@ describe('readCues on a Serato-analysed file', () => {
     // The failure this guards against is not an exception -- it is an infinite
     // loop that grows an array until V8 aborts the whole process, which in the
     // client would take the Electron main process down with it.
-    expect(() => new V2Mp3Encoder().readCues(new Track(copy))).not.toThrow();
+    expect(() => new V2Encoder().readCues(new Track(copy))).not.toThrow();
   });
   it('decodes the file it was given, not whatever shares its read buffer', () => {
     // Node 24's fs.readFileSync serves files out of a shared 64 KiB pool, so
@@ -69,7 +69,7 @@ describe('readCues on a Serato-analysed file', () => {
     // so alternate enough times to cover a whole cycle of it.
     const stripped = scratchCopy();
     stripGeob(stripped, 'Serato Markers2');
-    const encoder = new V2Mp3Encoder();
+    const encoder = new V2Encoder();
 
     for (let i = 0; i < 6; i++) {
       expect(encoder.readCues(new Track(stripped))).toEqual([]);
@@ -84,7 +84,7 @@ describe('write', () => {
     const track = new Track(copy);
     track.addHotCue(new HotCue({ name: 'roundtrip', type: HotCueType.CUE, index: 0, start: 3000 }));
 
-    new V2Mp3Encoder().write(track);
+    new V2Encoder().write(track);
 
     expect(readGeobDescriptions(copy).sort()).toEqual([...SERATO_GEOB].sort());
   });
@@ -94,7 +94,7 @@ describe('write', () => {
     const track = new Track(copy);
     track.addHotCue(new HotCue({ name: 'roundtrip', type: HotCueType.CUE, index: 0, start: 3000 }));
 
-    const encoder = new V2Mp3Encoder();
+    const encoder = new V2Encoder();
     encoder.write(track);
 
     const cues = encoder.readCues(new Track(copy));
@@ -104,7 +104,7 @@ describe('write', () => {
 
 withPyserato('agreement with pyserato', () => {
   it('decodes the fixture to the same cues', () => {
-    const mine = new V2Mp3Encoder().readCues(new Track(FIXTURE));
+    const mine = new V2Encoder().readCues(new Track(FIXTURE));
     const theirs = pyseratoCues(FIXTURE);
 
     expect(mine.map((c) => ({ name: c.name, type: HotCueType[c.type], start: c.start, end: c.end })))
@@ -116,7 +116,7 @@ withPyserato('agreement with pyserato', () => {
     const track = new Track(copy);
     track.addHotCue(new HotCue({ name: 'roundtrip', type: HotCueType.CUE, index: 0, start: 3000 }));
 
-    new V2Mp3Encoder().write(track);
+    new V2Encoder().write(track);
 
     expect(geobDescriptions(copy)).toEqual([...SERATO_GEOB].sort());
     expect(pyseratoCues(copy).map((c) => [c.name, c.start])).toEqual([['roundtrip', 3000]]);

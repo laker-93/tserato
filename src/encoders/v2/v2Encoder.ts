@@ -4,7 +4,8 @@ import { Track } from '../../model/track';
 import { BaseEncoder } from '../baseEncoder';
 import { SERATO_MARKERS_V2 } from '../serato_tags';
 import { splitString } from '../../util';
-import { Geob, findGeobFrame, openTrack, writeGeobFrame } from '../geob';
+import { openTrack } from '../geob';
+import { probeContainer, tagIOFor, UnsupportedContainerError } from '../io';
 import { TrackMeta } from '../../model/trackMeta';
 
 /**
@@ -43,7 +44,7 @@ class BufferReader {
   }
 }
 
-export class V2Mp3Encoder extends BaseEncoder {
+export class V2Encoder extends BaseEncoder {
 
   get tagName(): string {
     return SERATO_MARKERS_V2;
@@ -62,8 +63,17 @@ export class V2Mp3Encoder extends BaseEncoder {
     this._write(track, payload);
   }
 
+  /**
+   * Still MP3-only: these are ordinary ID3 text frames, not Serato tags, so
+   * they are outside what TagIO covers. Nothing in subbox calls it.
+   */
   readMetaData(track: Track): TrackMeta {
-    const mp3tag = openTrack(track.path.toString())
+    const file = track.path.toString();
+    const { container } = probeContainer(file);
+    if (container !== 'MP3') {
+      throw new UnsupportedContainerError(container, file);
+    }
+    const mp3tag = openTrack(file)
     const v2 = mp3tag.tags.v2
     return {
       title: v2?.TIT2,
@@ -72,29 +82,24 @@ export class V2Mp3Encoder extends BaseEncoder {
     }
   }
 
+  /**
+   * The track's cues, or [] where it has none.
+   *
+   * Throws UnsupportedContainerError for a container tserato cannot read yet.
+   * That is deliberately not an empty list: a caller cannot tell "no cues" from
+   * "not looked at" if both come back the same, and downstream that difference
+   * is the difference between keeping the user's cues and dropping them.
+   */
   readCues(track: Track): HotCue[] {
+    const data = tagIOFor(track.path.toString()).read(this.markersName);
 
-    const mp3tag = openTrack(track.path.toString())
-
-    // A track Serato has analysed carries six GEOB frames -- Analysis,
-    // BeatGrid, Autotags, Markers_, Markers2 and Overview -- in no guaranteed
-    // order. Only Markers2 holds the cues, so it has to be found by
-    // description; taking GEOB[0] reads whichever frame happens to come first
-    // and fails the version check on every real Serato library.
-    const frame = this._findMarkers2(mp3tag.tags.v2?.GEOB)
-
-    if (!frame) {
-      // Either the file has no Serato frames at all, or it was analysed by
+    if (!data) {
+      // Either the file has no Serato tags at all, or it was analysed by
       // something that did not write cues. Neither is an error.
       return [];
     }
 
-    const data = Buffer.from(frame.object);
     return Array.from(this._decode(data));
-  }
-
-  private _findMarkers2(geob: Geob[] | undefined): Geob | undefined {
-    return findGeobFrame(geob, this.markersName);
   }
 
   private *_decode(data: Buffer): IterableIterator<HotCue> {
@@ -200,8 +205,9 @@ export class V2Mp3Encoder extends BaseEncoder {
   }
 
   private _write(track: Track, payload: Buffer): void {
-    // Replaces only our own frame; see writeGeobFrame for why that matters.
-    writeGeobFrame(track.path.toString(), this.markersName, payload);
+    // Replaces only our own tag; see writeGeobFrame and FlacTagIO for why that
+    // matters.
+    tagIOFor(track.path.toString()).write(this.markersName, payload);
   }
 
   private _encode(track: Track): Buffer {

@@ -2,7 +2,7 @@ import { Track } from '../../model/track';
 import { Tempo } from '../../model/tempo';
 import { BaseEncoder } from '../baseEncoder';
 import { SERATO_BEATGRID } from '../serato_tags';
-import { findGeobFrame, openTrack, writeGeobFrame } from '../geob';
+import { tagIOFor } from '../io';
 
 /**
  * The byte after the markers. Nobody knows what it is for: the most complete
@@ -56,9 +56,10 @@ const MARKER_BYTES = 8;
  * is towards declining rather than guessing: a wrong grid puts every hot cue on
  * the track off-beat, which is a worse outcome than no grid at all.
  *
- * MP3 only, matching the cue side.
+ * MP3 and FLAC, matching the cue side. The frame is the same in both; only
+ * where it is stored differs (see TagIO).
  */
-export class BeatgridMp3Encoder extends BaseEncoder {
+export class BeatgridEncoder extends BaseEncoder {
   get tagName(): string {
     return SERATO_BEATGRID;
   }
@@ -79,13 +80,14 @@ export class BeatgridMp3Encoder extends BaseEncoder {
    * frame" from "not gridded" should look for the frame itself.
    */
   readBeatgrid(track: Track): Tempo[] {
-    const mp3tag = openTrack(track.path.toString());
-    const frame = findGeobFrame(mp3tag.tags.v2?.GEOB, this.markersName);
-    if (!frame) {
+    // Not inside the try: an unreadable *container* is not a malformed grid,
+    // and must not be flattened into "no grid" (see UnsupportedContainerError).
+    const data = tagIOFor(track.path.toString()).read(this.markersName);
+    if (!data) {
       return [];
     }
     try {
-      return this._decode(Buffer.from(frame.object));
+      return this._decode(data);
     } catch {
       // Reading runs in Electron's main process against files this library did
       // not write. One malformed frame must not take the app down.
@@ -101,14 +103,10 @@ export class BeatgridMp3Encoder extends BaseEncoder {
    */
   readFooter(track: Track): number {
     try {
-      const frame = findGeobFrame(
-        openTrack(track.path.toString()).tags.v2?.GEOB,
-        this.markersName
-      );
-      if (!frame) {
+      const data = tagIOFor(track.path.toString()).read(this.markersName);
+      if (!data) {
         return DEFAULT_FOOTER;
       }
-      const data = Buffer.from(frame.object);
       return data.length > 0 ? data.readUInt8(data.length - 1) : DEFAULT_FOOTER;
     } catch {
       return DEFAULT_FOOTER;
@@ -120,8 +118,9 @@ export class BeatgridMp3Encoder extends BaseEncoder {
     // ungridded, which already has this frame and so already has a footer byte.
     // Writing a grid into it must not replace that byte with a guess.
     const payload = this._encode(track.beatgrid, this.readFooter(track));
-    // Replaces only our own frame; see writeGeobFrame for why that matters.
-    writeGeobFrame(track.path.toString(), this.markersName, payload);
+    // Replaces only our own tag; see writeGeobFrame and FlacTagIO for why that
+    // matters.
+    tagIOFor(track.path.toString()).write(this.markersName, payload);
   }
 
   _decode(data: Buffer): Tempo[] {

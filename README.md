@@ -2,16 +2,32 @@
 
 TypeScript port of pyserato (https://github.com/laker-93/pyserato/).
 
+## File formats
+
+Serato's cue and beat grid payloads are the same bytes in every container; only
+where they are stored differs. tserato reads and writes them in:
+
+| Container | Where the tag lives | Status |
+|---|---|---|
+| MP3 | ID3v2 `GEOB` frame | supported |
+| FLAC | Vorbis comment, base64 envelope | supported |
+| WAV, AIFF | ID3 chunk inside RIFF/IFF | [#17](https://github.com/laker-93/tserato/issues/17) |
+| M4A | `----:com.serato.dj` freeform atom | [#17](https://github.com/laker-93/tserato/issues/17) |
+
+The container is decided by the file's own bytes, not its extension. Anything
+in that second group throws `UnsupportedContainerError` rather than reporting
+that the track has no cues -- a caller has to be able to tell those apart.
+
 ## Write Crates
 
 ```
 // example/testEncoder.ts
-import { Builder, Crate, Track, V2Mp3Encoder, HotCue, HotCueType } from "tserato"
+import { Builder, Crate, Track, V2Encoder, HotCue, HotCueType } from "tserato"
 
 async function main() {
   // create encoder + builder
-  const mp3Encoder = new V2Mp3Encoder();
-  const builder = new Builder(mp3Encoder);
+  const encoder = new V2Encoder();
+  const builder = new Builder(encoder);
 
   // create crate
   const crate = new Crate("foojs");
@@ -61,12 +77,12 @@ main().catch(console.error);
 ## Write Cues
 
 ```
-import { Builder, Crate, Track, V2Mp3Encoder, HotCue, HotCueType } from "tserato"
+import { Builder, Crate, Track, V2Encoder, HotCue, HotCueType } from "tserato"
 
 async function main() {
   // create encoder + builder
-  const mp3Encoder = new V2Mp3Encoder();
-  const builder = new Builder(mp3Encoder);
+  const encoder = new V2Encoder();
+  const builder = new Builder(encoder);
 
   // create crate
   const crate = new Crate("foojs");
