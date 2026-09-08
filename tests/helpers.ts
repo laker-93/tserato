@@ -62,6 +62,24 @@ export function pyseratoAvailable(): boolean {
   }
 }
 
+/**
+ * Whether the helpers below that read a file back with mutagen can run.
+ *
+ * Separate from `pyseratoAvailable` on purpose: those need only mutagen, and
+ * the point of reading with mutagen is that it is not the implementation under
+ * test. PYTHON defaults to a checkout that exists on the author's machine and
+ * nowhere else, so without this gate the tests using them fail on CI rather
+ * than skipping the way every other python-dependent test here does.
+ */
+export function mutagenAvailable(): boolean {
+  try {
+    execFileSync(PYTHON, ['-c', 'import mutagen'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function pyseratoCues(file: string): Array<Record<string, unknown>> {
   const out = execFileSync(PYTHON, ['-c', `
 import json, sys
