@@ -310,6 +310,27 @@ describe('the dependency itself', () => {
 
     expect(out.toString().trim()).toBe('function');
   });
+
+  it('does not stop where the spec says, so a file with no audio is refused first', () => {
+    // flac-tagger computes isLast as `(lastAndType & 0b10000000) === 1`, which
+    // is never true. Its parse loop runs on until it meets a byte decoding to
+    // block type 127, and it only ever meets one because every FLAC audio frame
+    // starts with 0xFF. Cut the audio off and it reads past the end of the
+    // buffer and throws ERR_BUFFER_OUT_OF_BOUNDS from inside Buffer.readUint8.
+    const file = scratchFlacCopy('metadata-only.flac');
+    fs.writeFileSync(file, fs.readFileSync(file).subarray(0, metadataEnd(file)));
+
+    expect(() => new FlacTagIO(file).read(MARKERS2)).toThrow(/no audio after/);
+    // And specifically not the dependency's out-of-bounds read.
+    expect(() => new FlacTagIO(file).read(MARKERS2)).not.toThrow(/out of/i);
+  });
+
+  it('refuses a file whose metadata runs off the end, which is what a cut-short download looks like', () => {
+    const file = scratchFlacCopy('truncated.flac');
+    fs.writeFileSync(file, fs.readFileSync(file).subarray(0, metadataEnd(file) - 40));
+
+    expect(() => new FlacTagIO(file).read(MARKERS2)).toThrow(/truncated/);
+  });
 });
 
 describe('replacing the file', () => {
@@ -408,6 +429,17 @@ function stripComments(file: string): void {
   const stream = FlacStream.fromBuffer(fs.readFileSync(file));
   stream.metadataBlocks = stream.metadataBlocks.filter((b) => b !== stream.vorbisCommentBlock);
   fs.writeFileSync(file, stream.toBuffer());
+}
+
+/** Where the file's FLAC metadata ends and its audio frames begin. */
+function metadataEnd(file: string): number {
+  const flac = fs.readFileSync(file);
+  let at = 4;
+  for (;;) {
+    const last = (flac[at] & 0x80) !== 0;
+    at += 4 + flac.readUIntBE(at + 1, 3);
+    if (last) return at;
+  }
 }
 
 function comment(file: string, key: string): string {

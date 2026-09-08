@@ -105,10 +105,42 @@ export class FlacTagIO implements TagIO {
 
   private load(): { prefix: Buffer; stream: FlacStream } {
     const buffer = fs.readFileSync(this.file);
-    return {
-      prefix: buffer.subarray(0, this.offset),
-      stream: FlacStream.fromBuffer(buffer.subarray(this.offset)),
-    };
+    const flac = buffer.subarray(this.offset);
+    checkMetadataFits(flac, this.file);
+    return { prefix: buffer.subarray(0, this.offset), stream: FlacStream.fromBuffer(flac) };
+  }
+}
+
+/**
+ * Refuse a FLAC whose metadata runs off the end of the file, before parsing it.
+ *
+ * flac-tagger does not stop where the spec says to. Its `isLast` is computed as
+ * `(lastAndType & 0b10000000) === 1`, which is never true -- the masked value is
+ * 128 or 0 -- so its parse loop never sees the last-block flag and instead runs
+ * on until it meets a byte that decodes to block type 127 ("Invalid"). Every
+ * FLAC audio frame starts with 0xFF, and `0xFF & 0x7F` is 127, so on a real file
+ * it stops in the right place by accident. On a file that *ends* at its last
+ * metadata block it reads past the end and throws ERR_BUFFER_OUT_OF_BOUNDS from
+ * inside `Buffer.readUint8`.
+ *
+ * That is a real file: a download cut short mid-transfer is the shape subbox
+ * sees most (laker-93/subbox-app#108). Walking the block headers first costs
+ * nothing and turns an out-of-bounds read inside a dependency into a sentence
+ * naming the file.
+ */
+function checkMetadataFits(flac: Buffer, file: string): void {
+  let at = 4; // past "fLaC"
+  for (;;) {
+    if (at + 4 > flac.length) {
+      throw new Error(`${file} is truncated: its FLAC metadata runs past the end of the file`);
+    }
+    const last = (flac[at] & 0x80) !== 0;
+    const length = flac.readUIntBE(at + 1, 3);
+    at += 4 + length;
+    if (last) break;
+  }
+  if (at >= flac.length) {
+    throw new Error(`${file} has no audio after its FLAC metadata; it is not a complete file`);
   }
 }
 
