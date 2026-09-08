@@ -1,4 +1,5 @@
 import { Buffer } from 'buffer';
+import * as fs from 'fs';
 
 const INVALID_CHARACTERS_REGEX = /[^A-Za-z0-9_ ]/i;
 
@@ -92,4 +93,49 @@ export class DuplicateTrackError extends Error {}
 export function unpooledBuffer(buf: Buffer): Buffer {
   if (buf.byteOffset === 0 && buf.byteLength === buf.buffer.byteLength) return buf;
   return Buffer.from(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+}
+
+/**
+ * Replace `file`'s contents, leaving either the old file or the new one -- never
+ * a half-written one.
+ *
+ * Both writers here rewrite the whole file: an ID3 tag that grows shifts every
+ * audio frame after it, and a FLAC's metadata blocks sit in front of the audio
+ * too. Writing that back over the original truncates the user's track and then
+ * refills it, so a crash, a full disk or a yanked USB drive in the middle leaves
+ * a corrupt file and no copy of what was there. These are the user's own music
+ * files and this library is often pointed at a whole library at once, so the
+ * write goes to a sibling temp file first and is renamed into place -- rename
+ * within a directory is atomic, so a reader sees one version or the other.
+ */
+export function writeFileAtomic(file: string, data: Buffer): void {
+  // Renaming over a file needs no permission on the file itself, only on its
+  // directory, so without this a track the user marked read-only would be
+  // rewritten anyway -- which writing in place would have refused.
+  fs.accessSync(file, fs.constants.W_OK);
+
+  const tmp = `${file}.tserato-${process.pid}.tmp`;
+  try {
+    const fd = fs.openSync(tmp, 'w');
+    try {
+      fs.writeSync(fd, data);
+      // The rename is only atomic with respect to the *directory*; without this
+      // the new contents can still be lost to a power failure after it.
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    // A new file gets the umask default, so the track would come back
+    // world-readable (or not readable) depending on the machine. Keep what the
+    // file already had.
+    fs.chmodSync(tmp, fs.statSync(file).mode & 0o7777);
+    fs.renameSync(tmp, file);
+  } catch (e) {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      // Already gone, or never created. The original is untouched either way.
+    }
+    throw e;
+  }
 }

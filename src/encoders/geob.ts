@@ -1,5 +1,5 @@
 import MP3Tag from 'mp3tag.js';
-import { unpooledBuffer } from '../util';
+import { unpooledBuffer, writeFileAtomic } from '../util';
 
 const fs = require('fs');
 
@@ -73,5 +73,9 @@ export function writeGeobFrame(
   if (mp3tag.error !== '') throw new Error(mp3tag.error);
 
   mp3tag.read();
-  fs.writeFileSync(path, mp3tag.buffer);
+  // mp3tag.js hands back either a Buffer or a bare ArrayBuffer depending on
+  // what it was given. Wrapping the ArrayBuffer is a view; wrapping a Buffer
+  // would copy the whole track for nothing.
+  const out = mp3tag.buffer;
+  writeFileAtomic(path, Buffer.isBuffer(out) ? out : Buffer.from(out));
 }

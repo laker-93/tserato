@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "base-64": "^1.0.0",
+    "flac-tagger": "^1.0.8",
     "mp3tag.js": "^3.14.1"
   }
 }

@@ -3,7 +3,7 @@ import * as fs from 'fs';
 
 import MP3Tag from 'mp3tag.js';
 
-import { BeatgridMp3Encoder } from '../src/encoders/beatgrid/beatgridMp3Encoder';
+import { BeatgridEncoder } from '../src/encoders/beatgrid/beatgridEncoder';
 import { writeGeobFrame } from '../src/encoders/geob';
 import { unpooledBuffer } from '../src/util';
 import { Track } from '../src/model/track';
@@ -27,7 +27,7 @@ const ZENITH = Buffer.from('0100000000013d3c3e82432f000000', 'hex');
 /** Analysed, never gridded. Common, and not an error. */
 const UNGRIDDED = Buffer.from('01000000000000', 'hex');
 
-const encoder = new BeatgridMp3Encoder();
+const encoder = new BeatgridEncoder();
 
 describe('the frame itself', () => {
   it('encodes to the bytes Serato itself wrote', () => {
